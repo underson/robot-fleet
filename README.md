@@ -28,3 +28,10 @@ I worked with Claude Code as a pair programmer, not as an author:
 - **Explicit rules for the assistant.** [`CLAUDE.md`](CLAUDE.md) holds the architecture and testing rules I gave it,
   so it followed the project's conventions instead of improvising.
 - The commit history shows the order of decisions: design first, then domain, then adapters, then the UI.
+
+**Where I spent my own attention.** I focused my design and review time on **fleetd**: the domain model,
+ingestion rules, storage and API. Every decision there is mine, and I reviewed it line by line. The
+**simulator** and especially the **UI** were more AI-driven: I set the scope and the structure (types generated
+from the OpenAPI contract, one query hook per endpoint, feature folders, filters in the URL) and reviewed the
+result, but I didn't hand-craft the frontend details. They exist to make the backend's behaviour visible, so I
+kept them deliberately small.
