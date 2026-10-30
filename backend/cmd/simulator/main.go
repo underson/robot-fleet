@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -58,6 +60,11 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// The API lists the most urgent robots first, so that order depends on the
+	// fleet's current health. Sort by serial number so each robot gets the same
+	// role on every run.
+	slices.SortFunc(registered, func(a, b robotInfo) int { return strings.Compare(a.SerialNumber, b.SerialNumber) })
+
 	now := time.Now()
 	robots := make([]*Robot, 0, len(registered))
 	for robotIdx, info := range registered {
