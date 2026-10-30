@@ -125,8 +125,8 @@ func (s *Service) Sites(ctx context.Context) ([]Site, error) {
 // pages in memory. Fine for thousands of robots; at 100x health becomes a
 // stored, event-maintained column so the database can filter and page
 // (docs/DESIGN.md §7).
-func (s *Service) Overview(ctx context.Context, q OverviewQuery) (Overview, error) {
-	views, err := s.reader.Robots(ctx, q.SiteID)
+func (s *Service) Overview(ctx context.Context, query OverviewQuery) (Overview, error) {
+	views, err := s.reader.Robots(ctx, query.SiteID)
 	if err != nil {
 		return Overview{}, fmt.Errorf("list robots: %w", err)
 	}
@@ -134,11 +134,11 @@ func (s *Service) Overview(ctx context.Context, q OverviewQuery) (Overview, erro
 	now := s.now()
 	var summary Summary
 	var matching []RobotStatus
-	for _, v := range views {
-		h := s.policy.Assess(v.State, now)
-		summary.add(h)
-		if q.Status.matches(h) {
-			matching = append(matching, RobotStatus{RobotView: v, Health: h})
+	for _, view := range views {
+		health := s.policy.Assess(view.State, now)
+		summary.add(health)
+		if query.Status.matches(health) {
+			matching = append(matching, RobotStatus{RobotView: view, Health: health})
 		}
 	}
 
@@ -149,11 +149,11 @@ func (s *Service) Overview(ctx context.Context, q OverviewQuery) (Overview, erro
 		)
 	})
 
-	return Overview{Summary: summary, Robots: page(matching, q.Offset, q.Limit), Total: len(matching)}, nil
+	return Overview{Summary: summary, Robots: page(matching, query.Offset, query.Limit), Total: len(matching)}, nil
 }
 
 func (s *Service) Robot(ctx context.Context, id telemetry.RobotID) (RobotDetail, error) {
-	v, err := s.reader.Robot(ctx, id)
+	view, err := s.reader.Robot(ctx, id)
 	if err != nil {
 		return RobotDetail{}, err
 	}
@@ -163,14 +163,14 @@ func (s *Service) Robot(ctx context.Context, id telemetry.RobotID) (RobotDetail,
 		return RobotDetail{}, fmt.Errorf("robot history: %w", err)
 	}
 	return RobotDetail{
-		RobotStatus: RobotStatus{RobotView: v, Health: s.policy.Assess(v.State, now)},
+		RobotStatus: RobotStatus{RobotView: view, Health: s.policy.Assess(view.State, now)},
 		History:     history,
 	}, nil
 }
 
-func (sum *Summary) add(h Health) {
+func (sum *Summary) add(health Health) {
 	sum.Total++
-	switch h.Connectivity {
+	switch health.Connectivity {
 	case Online:
 		sum.Online++
 	case Offline:
@@ -178,22 +178,22 @@ func (sum *Summary) add(h Health) {
 	case NeverReported:
 		sum.NeverReported++
 	}
-	if h.NeedsAttention() {
+	if health.NeedsAttention() {
 		sum.NeedsAttention++
 	}
-	if h.Battery == BatteryLow || h.Battery == BatteryCritical {
+	if health.Battery == BatteryLow || health.Battery == BatteryCritical {
 		sum.LowBattery++
 	}
 }
 
-func (f StatusFilter) matches(h Health) bool {
+func (f StatusFilter) matches(health Health) bool {
 	switch f {
 	case StatusAttention:
-		return h.NeedsAttention()
+		return health.NeedsAttention()
 	case StatusOnline:
-		return h.Connectivity == Online
+		return health.Connectivity == Online
 	case StatusOffline:
-		return h.Connectivity == Offline
+		return health.Connectivity == Offline
 	default:
 		return true
 	}

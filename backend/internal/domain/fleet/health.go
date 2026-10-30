@@ -83,28 +83,28 @@ func (p HealthPolicy) Assess(state *State, now time.Time) Health {
 		return Health{Connectivity: NeverReported, Battery: BatteryUnknown}
 	}
 
-	h := Health{
+	health := Health{
 		Connectivity:  Online,
 		Battery:       p.batteryLevel(state.Power.StateOfCharge),
 		PositionKnown: state.Position.Localized,
 	}
 	// Liveness uses the server clock: robot clocks drift.
 	if now.Sub(state.ReceivedAt) > p.OfflineAfter {
-		h.Connectivity = Offline
+		health.Connectivity = Offline
 	}
 
 	var reasons []AttentionReason
 	if state.Safety.EmergencyStop.Active() {
 		reasons = append(reasons, ReasonEmergencyStop)
 	}
-	if slices.ContainsFunc(state.Faults, func(f telemetry.Fault) bool { return f.Level.Severe() }) {
+	if slices.ContainsFunc(state.Faults, func(fault telemetry.Fault) bool { return fault.Level.Severe() }) {
 		reasons = append(reasons, ReasonSevereFault)
 	}
-	if h.Connectivity == Offline {
+	if health.Connectivity == Offline {
 		reasons = append(reasons, ReasonOffline)
 	}
 	// A critical robot on its charger is doing the right thing.
-	if h.Battery == BatteryCritical && !state.Power.Charging {
+	if health.Battery == BatteryCritical && !state.Power.Charging {
 		reasons = append(reasons, ReasonBatteryCritical)
 	}
 	// Order by priority here, so the order is defined only by reasonPriority,
@@ -112,8 +112,8 @@ func (p HealthPolicy) Assess(state *State, now time.Time) Health {
 	slices.SortFunc(reasons, func(a, b AttentionReason) int {
 		return cmp.Compare(a.priority(), b.priority())
 	})
-	h.Attention = reasons
-	return h
+	health.Attention = reasons
+	return health
 }
 
 func (p HealthPolicy) batteryLevel(stateOfCharge float64) BatteryLevel {

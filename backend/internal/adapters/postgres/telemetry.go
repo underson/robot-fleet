@@ -47,12 +47,12 @@ func (s *Store) Append(ctx context.Context, records []telemetry.Record) ([]bool,
 	results := s.pool.SendBatch(ctx, batch)
 	defer results.Close()
 	inserted := make([]bool, len(records))
-	for i := range records {
+	for recIdx := range records {
 		tag, err := results.Exec()
 		if err != nil {
 			return nil, fmt.Errorf("insert telemetry: %w", err)
 		}
-		inserted[i] = tag.RowsAffected() == 1
+		inserted[recIdx] = tag.RowsAffected() == 1
 	}
 	return inserted, results.Close()
 }
@@ -91,9 +91,9 @@ type fault struct {
 }
 
 func recordArgs(rec telemetry.Record) ([]any, error) {
-	faults := make([]fault, len(rec.Faults))
-	for i, f := range rec.Faults {
-		faults[i] = fault{Type: f.Type, Level: string(f.Level), Description: f.Description}
+	faults := make([]fault, 0, len(rec.Faults)) // [] not null in JSONB
+	for _, domainFault := range rec.Faults {
+		faults = append(faults, fault{Type: domainFault.Type, Level: string(domainFault.Level), Description: domainFault.Description})
 	}
 	faultsJSON, err := json.Marshal(faults)
 	if err != nil {
@@ -103,9 +103,9 @@ func recordArgs(rec telemetry.Record) ([]any, error) {
 	if len(rec.VendorData) > 0 {
 		vendorData = rec.VendorData
 	}
-	p := rec.Position
+	position := rec.Position
 	return []any{
-		string(rec.RobotID), rec.ReportedAt, rec.ReceivedAt, p.MapID, p.X, p.Y, p.Theta, p.Localized,
+		string(rec.RobotID), rec.ReportedAt, rec.ReceivedAt, position.MapID, position.X, position.Y, position.Theta, position.Localized,
 		rec.Power.StateOfCharge, rec.Power.Charging, string(rec.Mode), faultsJSON,
 		string(rec.Safety.EmergencyStop), rec.Safety.FieldViolation, vendorData,
 	}, nil
@@ -117,8 +117,8 @@ func decodeFaults(data []byte) ([]telemetry.Fault, error) {
 		return nil, fmt.Errorf("decode faults: %w", err)
 	}
 	var out []telemetry.Fault
-	for _, f := range stored {
-		out = append(out, telemetry.Fault{Type: f.Type, Level: telemetry.FaultLevel(f.Level), Description: f.Description})
+	for _, storedFault := range stored {
+		out = append(out, telemetry.Fault{Type: storedFault.Type, Level: telemetry.FaultLevel(storedFault.Level), Description: storedFault.Description})
 	}
 	return out, nil
 }

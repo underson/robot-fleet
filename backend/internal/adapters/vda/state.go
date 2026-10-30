@@ -103,7 +103,7 @@ func (m StateMessage) ToReport() (telemetry.Report, error) {
 		return telemetry.Report{}, fmt.Errorf("%w: %w", telemetry.ErrInvalidReport, errors.Join(missing...))
 	}
 
-	r := telemetry.Report{
+	report := telemetry.Report{
 		Robot:      telemetry.Identity{Manufacturer: m.Manufacturer, SerialNumber: m.SerialNumber},
 		ReportedAt: m.Timestamp,
 		Power:      telemetry.Power{StateOfCharge: m.PowerSupply.StateOfCharge, Charging: m.PowerSupply.Charging},
@@ -115,24 +115,24 @@ func (m StateMessage) ToReport() (telemetry.Report, error) {
 		VendorData: m.VendorData,
 	}
 	if m.Position != nil {
-		r.Position = telemetry.Position{
+		report.Position = telemetry.Position{
 			MapID: m.Position.MapID, X: m.Position.X, Y: m.Position.Y,
 			Theta: m.Position.Theta, Localized: m.Position.Localized,
 		}
 	}
-	for _, e := range m.Errors {
-		r.Faults = append(r.Faults, telemetry.Fault{
-			Type:        e.ErrorType,
-			Level:       lookup(faultLevels, e.ErrorLevel),
-			Description: e.ErrorDescription,
+	for _, wireError := range m.Errors {
+		report.Faults = append(report.Faults, telemetry.Fault{
+			Type:        wireError.ErrorType,
+			Level:       lookup(faultLevels, wireError.ErrorLevel),
+			Description: wireError.ErrorDescription,
 		})
 	}
-	return r, nil
+	return report, nil
 }
 
 func lookup[T ~string](values map[string]T, wire string) T {
-	if v, ok := values[wire]; ok {
-		return v
+	if domainValue, ok := values[wire]; ok {
+		return domainValue
 	}
 	return T(wire)
 }

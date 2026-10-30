@@ -36,11 +36,11 @@ func (h *fakeHistory) Append(_ context.Context, records []Record) ([]bool, error
 		return nil, h.err
 	}
 	inserted := make([]bool, len(records))
-	for i, rec := range records {
-		k := historyKey{rec.RobotID, rec.ReportedAt}
-		if _, ok := h.records[k]; !ok {
-			h.records[k] = rec
-			inserted[i] = true
+	for recIdx, rec := range records {
+		key := historyKey{rec.RobotID, rec.ReportedAt}
+		if _, exists := h.records[key]; !exists {
+			h.records[key] = rec
+			inserted[recIdx] = true
 		}
 	}
 	return inserted, nil
@@ -55,42 +55,42 @@ func (s *fakeState) SaveIfNewer(_ context.Context, rec Record) (bool, error) {
 	if s.err != nil {
 		return false, s.err
 	}
-	if cur, ok := s.current[rec.RobotID]; ok && !rec.Supersedes(cur) {
+	if current, exists := s.current[rec.RobotID]; exists && !rec.Supersedes(current) {
 		return false, nil
 	}
 	s.current[rec.RobotID] = rec
 	return true, nil
 }
 
-type fixture struct {
+type testFixture struct {
 	ingestor *Ingestor
 	history  *fakeHistory
 	state    *fakeState
 }
 
-func newFixture() fixture {
-	h := &fakeHistory{records: map[historyKey]Record{}}
-	s := &fakeState{current: map[RobotID]Record{}}
-	return fixture{
-		ingestor: NewIngestor(fakeRegistry{}, h, s, func() time.Time { return serverNow }, 5*time.Second),
-		history:  h,
-		state:    s,
+func newFixture() testFixture {
+	history := &fakeHistory{records: map[historyKey]Record{}}
+	state := &fakeState{current: map[RobotID]Record{}}
+	return testFixture{
+		ingestor: NewIngestor(fakeRegistry{}, history, state, func() time.Time { return serverNow }, 5*time.Second),
+		history:  history,
+		state:    state,
 	}
 }
 
 func reportAt(at time.Time) Report {
-	r := validReport()
-	r.ReportedAt = at
-	return r
+	report := validReport()
+	report.ReportedAt = at
+	return report
 }
 
-func ingest(t *testing.T, f fixture, reports ...Report) []Outcome {
+func ingest(t *testing.T, fixture testFixture, reports ...Report) []Outcome {
 	t.Helper()
-	out, err := f.ingestor.Ingest(context.Background(), reports)
+	outcomes, err := fixture.ingestor.Ingest(context.Background(), reports)
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	return out
+	return outcomes
 }
 
 func assertOutcome(t *testing.T, got Outcome, status Status, reason Reason) {
@@ -117,14 +117,14 @@ func TestIngestRejections(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newFixture()
-			out := ingest(t, f, tt.report)
+			fixture := newFixture()
+			outcomes := ingest(t, fixture, tt.report)
 
-			assertOutcome(t, out[0], StatusRejected, tt.reason)
-			if out[0].Detail == "" {
+			assertOutcome(t, outcomes[0], StatusRejected, tt.reason)
+			if outcomes[0].Detail == "" {
 				t.Error("rejection should explain itself")
 			}
-			if len(f.history.records) != 0 || len(f.state.current) != 0 {
+			if len(fixture.history.records) != 0 || len(fixture.state.current) != 0 {
 				t.Error("rejected report must not be stored")
 			}
 		})
@@ -132,105 +132,105 @@ func TestIngestRejections(t *testing.T) {
 }
 
 func TestIngestAcceptsReportWithinClockSkew(t *testing.T) {
-	f := newFixture()
-	out := ingest(t, f, reportAt(serverNow.Add(5*time.Second)))
-	assertOutcome(t, out[0], StatusApplied, "")
+	fixture := newFixture()
+	outcomes := ingest(t, fixture, reportAt(serverNow.Add(5*time.Second)))
+	assertOutcome(t, outcomes[0], StatusApplied, "")
 }
 
 func TestIngestAppliesNewReport(t *testing.T) {
-	f := newFixture()
-	rep := reportAt(serverNow.Add(-time.Second))
+	fixture := newFixture()
+	report := reportAt(serverNow.Add(-time.Second))
 
-	out := ingest(t, f, rep)
+	outcomes := ingest(t, fixture, report)
 
-	assertOutcome(t, out[0], StatusApplied, "")
-	got := f.state.current[knownRobot]
-	if !got.ReportedAt.Equal(rep.ReportedAt) || !got.ReceivedAt.Equal(serverNow) {
-		t.Fatalf("state = %+v, want reportedAt %s receivedAt %s", got, rep.ReportedAt, serverNow)
+	assertOutcome(t, outcomes[0], StatusApplied, "")
+	got := fixture.state.current[knownRobot]
+	if !got.ReportedAt.Equal(report.ReportedAt) || !got.ReceivedAt.Equal(serverNow) {
+		t.Fatalf("state = %+v, want reportedAt %s receivedAt %s", got, report.ReportedAt, serverNow)
 	}
 }
 
 func TestIngestLateReportGoesToHistoryOnly(t *testing.T) {
-	f := newFixture()
+	fixture := newFixture()
 	newer := serverNow.Add(-time.Second)
-	ingest(t, f, reportAt(newer))
+	ingest(t, fixture, reportAt(newer))
 
-	out := ingest(t, f, reportAt(newer.Add(-time.Second)))
+	outcomes := ingest(t, fixture, reportAt(newer.Add(-time.Second)))
 
-	assertOutcome(t, out[0], StatusLate, "")
-	if !f.state.current[knownRobot].ReportedAt.Equal(newer) {
+	assertOutcome(t, outcomes[0], StatusLate, "")
+	if !fixture.state.current[knownRobot].ReportedAt.Equal(newer) {
 		t.Fatal("late report overwrote the current state")
 	}
-	if len(f.history.records) != 2 {
-		t.Fatalf("history has %d records, want 2", len(f.history.records))
+	if len(fixture.history.records) != 2 {
+		t.Fatalf("history has %d records, want 2", len(fixture.history.records))
 	}
 }
 
 func TestIngestDuplicateChangesNothing(t *testing.T) {
-	f := newFixture()
-	rep := reportAt(serverNow.Add(-time.Second))
-	ingest(t, f, rep)
+	fixture := newFixture()
+	report := reportAt(serverNow.Add(-time.Second))
+	ingest(t, fixture, report)
 
-	out := ingest(t, f, rep)
+	outcomes := ingest(t, fixture, report)
 
-	assertOutcome(t, out[0], StatusDuplicate, "")
-	if len(f.history.records) != 1 {
-		t.Fatalf("history has %d records, want 1", len(f.history.records))
+	assertOutcome(t, outcomes[0], StatusDuplicate, "")
+	if len(fixture.history.records) != 1 {
+		t.Fatalf("history has %d records, want 1", len(fixture.history.records))
 	}
 }
 
 func TestIngestBatchOutOfOrder(t *testing.T) {
-	f := newFixture()
+	fixture := newFixture()
 	older, newer := serverNow.Add(-2*time.Second), serverNow.Add(-time.Second)
 
-	out := ingest(t, f, reportAt(newer), reportAt(older), reportAt(newer))
+	outcomes := ingest(t, fixture, reportAt(newer), reportAt(older), reportAt(newer))
 
-	assertOutcome(t, out[0], StatusApplied, "")
-	assertOutcome(t, out[1], StatusLate, "")
-	assertOutcome(t, out[2], StatusDuplicate, "")
-	if !f.state.current[knownRobot].ReportedAt.Equal(newer) {
+	assertOutcome(t, outcomes[0], StatusApplied, "")
+	assertOutcome(t, outcomes[1], StatusLate, "")
+	assertOutcome(t, outcomes[2], StatusDuplicate, "")
+	if !fixture.state.current[knownRobot].ReportedAt.Equal(newer) {
 		t.Fatal("state should hold the newest report of the batch")
 	}
 }
 
 func TestIngestMixedBatchKeepsOrder(t *testing.T) {
-	f := newFixture()
+	fixture := newFixture()
 	unknown := validReport()
 	unknown.Robot.SerialNumber = "NOT-REGISTERED"
 
-	out := ingest(t, f, unknown, reportAt(serverNow.Add(-time.Second)))
+	outcomes := ingest(t, fixture, unknown, reportAt(serverNow.Add(-time.Second)))
 
-	assertOutcome(t, out[0], StatusRejected, ReasonUnknownRobot)
-	assertOutcome(t, out[1], StatusApplied, "")
+	assertOutcome(t, outcomes[0], StatusRejected, ReasonUnknownRobot)
+	assertOutcome(t, outcomes[1], StatusApplied, "")
 }
 
 func TestIngestRetryAfterStateFailureAppliesState(t *testing.T) {
-	f := newFixture()
-	rep := reportAt(serverNow.Add(-time.Second))
-	f.state.err = errors.New("connection reset")
+	fixture := newFixture()
+	report := reportAt(serverNow.Add(-time.Second))
+	fixture.state.err = errors.New("connection reset")
 
-	if _, err := f.ingestor.Ingest(context.Background(), []Report{rep}); err == nil {
+	if _, err := fixture.ingestor.Ingest(context.Background(), []Report{report}); err == nil {
 		t.Fatal("want error when the state store fails")
 	}
 
-	f.state.err = nil
-	out := ingest(t, f, rep)
+	fixture.state.err = nil
+	outcomes := ingest(t, fixture, report)
 
 	// History already had it, but the state was never written: the retry must apply it.
-	assertOutcome(t, out[0], StatusApplied, "")
-	if _, ok := f.state.current[knownRobot]; !ok {
+	assertOutcome(t, outcomes[0], StatusApplied, "")
+	if _, ok := fixture.state.current[knownRobot]; !ok {
 		t.Fatal("retry did not write the state")
 	}
 }
 
 func TestIngestHistoryFailureFailsBatch(t *testing.T) {
-	f := newFixture()
-	f.history.err = errors.New("disk full")
+	fixture := newFixture()
+	fixture.history.err = errors.New("disk full")
 
-	if _, err := f.ingestor.Ingest(context.Background(), []Report{reportAt(serverNow)}); err == nil {
+	if _, err := fixture.ingestor.Ingest(context.Background(), []Report{reportAt(serverNow)}); err == nil {
 		t.Fatal("want error when history fails")
 	}
-	if len(f.state.current) != 0 {
+	if len(fixture.state.current) != 0 {
 		t.Fatal("state must not move ahead of history")
 	}
 }

@@ -19,19 +19,19 @@ type fakeReader struct {
 func (r *fakeReader) Sites(context.Context) ([]Site, error) { return nil, nil }
 
 func (r *fakeReader) Robots(_ context.Context, siteID string) ([]RobotView, error) {
-	var out []RobotView
-	for _, v := range r.robots {
-		if siteID == "" || v.Robot.Site.ID == siteID {
-			out = append(out, v)
+	var matching []RobotView
+	for _, view := range r.robots {
+		if siteID == "" || view.Robot.Site.ID == siteID {
+			matching = append(matching, view)
 		}
 	}
-	return out, nil
+	return matching, nil
 }
 
 func (r *fakeReader) Robot(_ context.Context, id telemetry.RobotID) (RobotView, error) {
-	for _, v := range r.robots {
-		if v.Robot.ID == id {
-			return v, nil
+	for _, view := range r.robots {
+		if view.Robot.ID == id {
+			return view, nil
 		}
 	}
 	return RobotView{}, ErrRobotNotFound
@@ -47,27 +47,27 @@ func robot(name, site string, state *State) RobotView {
 }
 
 func withState(mutate func(*State)) *State {
-	s := healthyState()
-	mutate(s)
-	return s
+	state := healthyState()
+	mutate(state)
+	return state
 }
 
 func newFleet() (*Service, *fakeReader) {
-	r := &fakeReader{robots: []RobotView{
+	reader := &fakeReader{robots: []RobotView{
 		robot("bravo", "hq", healthyState()),
 		robot("alpha", "hq", healthyState()),
-		robot("charlie", "hq", withState(func(s *State) { s.ReceivedAt = now.Add(-time.Hour) })),
-		robot("delta", "hq", withState(func(s *State) { s.Safety.EmergencyStop = telemetry.EmergencyStopRemote })),
-		robot("echo", "airport", withState(func(s *State) { s.Power.StateOfCharge = 15 })),
+		robot("charlie", "hq", withState(func(state *State) { state.ReceivedAt = now.Add(-time.Hour) })),
+		robot("delta", "hq", withState(func(state *State) { state.Safety.EmergencyStop = telemetry.EmergencyStopRemote })),
+		robot("echo", "airport", withState(func(state *State) { state.Power.StateOfCharge = 15 })),
 		robot("foxtrot", "airport", nil),
 	}}
-	return NewService(r, DefaultHealthPolicy(), func() time.Time { return now }, 10*time.Minute), r
+	return NewService(reader, DefaultHealthPolicy(), func() time.Time { return now }, 10*time.Minute), reader
 }
 
 func names(robots []RobotStatus) []string {
 	var out []string
-	for _, r := range robots {
-		out = append(out, r.Robot.Name)
+	for _, robotStatus := range robots {
+		out = append(out, robotStatus.Robot.Name)
 	}
 	return out
 }
@@ -81,8 +81,8 @@ func TestOverviewSortsMostUrgentFirst(t *testing.T) {
 
 	// emergency stop, then offline, then the rest by name
 	want := []string{"delta", "charlie", "alpha", "bravo", "echo", "foxtrot"}
-	if g := names(got.Robots); !slices.Equal(g, want) {
-		t.Fatalf("order = %v, want %v", g, want)
+	if gotNames := names(got.Robots); !slices.Equal(gotNames, want) {
+		t.Fatalf("order = %v, want %v", gotNames, want)
 	}
 }
 
@@ -112,8 +112,8 @@ func TestOverviewFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, _ := newFleet()
 			got, _ := svc.Overview(context.Background(), tt.query)
-			if g := names(got.Robots); !slices.Equal(g, tt.want) {
-				t.Fatalf("robots = %v, want %v", g, tt.want)
+			if gotNames := names(got.Robots); !slices.Equal(gotNames, tt.want) {
+				t.Fatalf("robots = %v, want %v", gotNames, tt.want)
 			}
 		})
 	}

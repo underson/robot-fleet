@@ -146,12 +146,12 @@ func (r Report) Validate() error {
 	if !r.Mode.valid() {
 		add("unknown mode %q", r.Mode)
 	}
-	for i, f := range r.Faults {
-		if f.Type == "" {
-			add("fault %d has no type", i)
+	for faultIdx, fault := range r.Faults {
+		if fault.Type == "" {
+			add("fault %d has no type", faultIdx)
 		}
-		if !f.Level.valid() {
-			add("fault %d has unknown level %q", i, f.Level)
+		if !fault.Level.valid() {
+			add("fault %d has unknown level %q", faultIdx, fault.Level)
 		}
 	}
 	if !r.Safety.EmergencyStop.valid() {

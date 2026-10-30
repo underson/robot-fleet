@@ -31,61 +31,61 @@ func TestAssess(t *testing.T) {
 		attention    []AttentionReason
 	}{
 		{"healthy", func(*State) {}, Online, BatteryOK, nil},
-		{"low battery is not yet attention", func(s *State) { s.Power.StateOfCharge = 15 }, Online, BatteryLow, nil},
-		{"critical battery, not charging", func(s *State) { s.Power.StateOfCharge = 8 }, Online, BatteryCritical,
+		{"low battery is not yet attention", func(state *State) { state.Power.StateOfCharge = 15 }, Online, BatteryLow, nil},
+		{"critical battery, not charging", func(state *State) { state.Power.StateOfCharge = 8 }, Online, BatteryCritical,
 			[]AttentionReason{ReasonBatteryCritical}},
-		{"critical battery while charging is fine", func(s *State) {
-			s.Power = telemetry.Power{StateOfCharge: 8, Charging: true}
+		{"critical battery while charging is fine", func(state *State) {
+			state.Power = telemetry.Power{StateOfCharge: 8, Charging: true}
 		}, Online, BatteryCritical, nil},
-		{"offline uses server clock, not robot clock", func(s *State) {
-			s.ReportedAt = now // robot clock says fresh
-			s.ReceivedAt = now.Add(-11 * time.Second)
+		{"offline uses server clock, not robot clock", func(state *State) {
+			state.ReportedAt = now // robot clock says fresh
+			state.ReceivedAt = now.Add(-11 * time.Second)
 		}, Offline, BatteryOK, []AttentionReason{ReasonOffline}},
-		{"exactly at the offline threshold is still online", func(s *State) {
-			s.ReceivedAt = now.Add(-10 * time.Second)
+		{"exactly at the offline threshold is still online", func(state *State) {
+			state.ReceivedAt = now.Add(-10 * time.Second)
 		}, Online, BatteryOK, nil},
-		{"warning fault is not attention", func(s *State) {
-			s.Faults = []telemetry.Fault{{Type: "bumperPressed", Level: telemetry.FaultWarning}}
+		{"warning fault is not attention", func(state *State) {
+			state.Faults = []telemetry.Fault{{Type: "bumperPressed", Level: telemetry.FaultWarning}}
 		}, Online, BatteryOK, nil},
-		{"severe fault", func(s *State) {
-			s.Faults = []telemetry.Fault{{Type: "motorOverheat", Level: telemetry.FaultCritical}}
+		{"severe fault", func(state *State) {
+			state.Faults = []telemetry.Fault{{Type: "motorOverheat", Level: telemetry.FaultCritical}}
 		}, Online, BatteryOK, []AttentionReason{ReasonSevereFault}},
-		{"several reasons, most urgent first", func(s *State) {
-			s.ReceivedAt = now.Add(-time.Minute)
-			s.Power.StateOfCharge = 5
-			s.Safety.EmergencyStop = telemetry.EmergencyStopManual
+		{"several reasons, most urgent first", func(state *State) {
+			state.ReceivedAt = now.Add(-time.Minute)
+			state.Power.StateOfCharge = 5
+			state.Safety.EmergencyStop = telemetry.EmergencyStopManual
 		}, Offline, BatteryCritical, []AttentionReason{ReasonEmergencyStop, ReasonOffline, ReasonBatteryCritical}},
-		{"all reasons come back in priority order", func(s *State) {
-			s.ReceivedAt = now.Add(-time.Minute)
-			s.Power.StateOfCharge = 5
-			s.Faults = []telemetry.Fault{{Type: "motorOverheat", Level: telemetry.FaultFatal}}
-			s.Safety.EmergencyStop = telemetry.EmergencyStopManual
+		{"all reasons come back in priority order", func(state *State) {
+			state.ReceivedAt = now.Add(-time.Minute)
+			state.Power.StateOfCharge = 5
+			state.Faults = []telemetry.Fault{{Type: "motorOverheat", Level: telemetry.FaultFatal}}
+			state.Safety.EmergencyStop = telemetry.EmergencyStopManual
 		}, Offline, BatteryCritical, reasonPriority},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := healthyState()
-			tt.mutate(s)
-			h := policy.Assess(s, now)
+			state := healthyState()
+			tt.mutate(state)
+			health := policy.Assess(state, now)
 
-			if h.Connectivity != tt.connectivity || h.Battery != tt.battery || !slices.Equal(h.Attention, tt.attention) {
-				t.Fatalf("got %+v, want connectivity %s battery %s attention %v", h, tt.connectivity, tt.battery, tt.attention)
+			if health.Connectivity != tt.connectivity || health.Battery != tt.battery || !slices.Equal(health.Attention, tt.attention) {
+				t.Fatalf("got %+v, want connectivity %state battery %state attention %v", health, tt.connectivity, tt.battery, tt.attention)
 			}
 		})
 	}
 }
 
 func TestAssessNeverReported(t *testing.T) {
-	h := DefaultHealthPolicy().Assess(nil, now)
-	if h.Connectivity != NeverReported || h.NeedsAttention() {
-		t.Fatalf("got %+v, want never_reported without attention", h)
+	health := DefaultHealthPolicy().Assess(nil, now)
+	if health.Connectivity != NeverReported || health.NeedsAttention() {
+		t.Fatalf("got %+v, want never_reported without attention", health)
 	}
 }
 
 func TestAssessUnlocalizedPosition(t *testing.T) {
-	s := healthyState()
-	s.Position.Localized = false
-	if DefaultHealthPolicy().Assess(s, now).PositionKnown {
+	state := healthyState()
+	state.Position.Localized = false
+	if DefaultHealthPolicy().Assess(state, now).PositionKnown {
 		t.Fatal("position should be unknown when the robot isn't localized")
 	}
 }

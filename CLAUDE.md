@@ -16,6 +16,13 @@ Design and decisions live in `docs/DESIGN.md`; it is the source of truth. Update
 - Write side (ingestion) and read side (fleet queries) don't share code paths.
 - Business rules (ordering, dedup, health) live in the domain, not in SQL or handlers. Thresholds come from `HealthPolicy`.
 
+## Naming (all code)
+- Names say what a thing is, including loop variables and short-lived locals: `for _, robot := range robots`,
+  `recIdx`/`reportIdx` for indexes into different slices, never `i`, `j`, `k`, `v`, `x`.
+- Prefer loops without indexes (`append`) when the index has no meaning.
+- Go idioms that stay short because every Go reader expects them: method receivers (`s *Store`), `ctx`, `err`,
+  `t` and `tt` in tests, `w`/`r` in HTTP handlers, `a`/`b` in sort comparators.
+
 ## Go conventions
 - Standard library first (`net/http`, `log/slog`); pgx for Postgres; no web framework.
 - Errors wrapped with context (`fmt.Errorf("...: %w", err)`); no panics outside `main`.

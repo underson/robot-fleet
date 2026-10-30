@@ -27,26 +27,26 @@ func TestReportValidate(t *testing.T) {
 		wantErr string // substring; empty means valid
 	}{
 		{name: "valid report", mutate: func(*Report) {}},
-		{name: "not localized without map is fine", mutate: func(r *Report) {
-			r.Position = Position{Localized: false}
+		{name: "not localized without map is fine", mutate: func(report *Report) {
+			report.Position = Position{Localized: false}
 		}},
-		{name: "battery at both bounds is fine", mutate: func(r *Report) { r.Power.StateOfCharge = 100 }},
-		{name: "missing serial number", mutate: func(r *Report) { r.Robot.SerialNumber = "" }, wantErr: "robot identity"},
-		{name: "missing timestamp", mutate: func(r *Report) { r.ReportedAt = time.Time{} }, wantErr: "reportedAt"},
-		{name: "localized without map", mutate: func(r *Report) { r.Position.MapID = "" }, wantErr: "needs a map"},
-		{name: "theta out of range", mutate: func(r *Report) { r.Position.Theta = math.Pi + 0.1 }, wantErr: "theta"},
-		{name: "negative battery", mutate: func(r *Report) { r.Power.StateOfCharge = -1 }, wantErr: "state of charge"},
-		{name: "battery above 100", mutate: func(r *Report) { r.Power.StateOfCharge = 100.1 }, wantErr: "state of charge"},
-		{name: "unknown mode", mutate: func(r *Report) { r.Mode = "dancing" }, wantErr: "unknown mode"},
-		{name: "fault without type", mutate: func(r *Report) { r.Faults[0].Type = "" }, wantErr: "has no type"},
-		{name: "fault with unknown level", mutate: func(r *Report) { r.Faults[0].Level = "nal" }, wantErr: "unknown level"},
-		{name: "unknown emergency stop", mutate: func(r *Report) { r.Safety.EmergencyStop = "maybe" }, wantErr: "emergency stop"},
+		{name: "battery at both bounds is fine", mutate: func(report *Report) { report.Power.StateOfCharge = 100 }},
+		{name: "missing serial number", mutate: func(report *Report) { report.Robot.SerialNumber = "" }, wantErr: "robot identity"},
+		{name: "missing timestamp", mutate: func(report *Report) { report.ReportedAt = time.Time{} }, wantErr: "reportedAt"},
+		{name: "localized without map", mutate: func(report *Report) { report.Position.MapID = "" }, wantErr: "needs a map"},
+		{name: "theta out of range", mutate: func(report *Report) { report.Position.Theta = math.Pi + 0.1 }, wantErr: "theta"},
+		{name: "negative battery", mutate: func(report *Report) { report.Power.StateOfCharge = -1 }, wantErr: "state of charge"},
+		{name: "battery above 100", mutate: func(report *Report) { report.Power.StateOfCharge = 100.1 }, wantErr: "state of charge"},
+		{name: "unknown mode", mutate: func(report *Report) { report.Mode = "dancing" }, wantErr: "unknown mode"},
+		{name: "fault without type", mutate: func(report *Report) { report.Faults[0].Type = "" }, wantErr: "has no type"},
+		{name: "fault with unknown level", mutate: func(report *Report) { report.Faults[0].Level = "nal" }, wantErr: "unknown level"},
+		{name: "unknown emergency stop", mutate: func(report *Report) { report.Safety.EmergencyStop = "maybe" }, wantErr: "emergency stop"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := validReport()
-			tt.mutate(&r)
-			err := r.Validate()
+			report := validReport()
+			tt.mutate(&report)
+			err := report.Validate()
 
 			if tt.wantErr == "" {
 				if err != nil {
@@ -65,12 +65,12 @@ func TestReportValidate(t *testing.T) {
 }
 
 func TestReportValidateCollectsAllProblems(t *testing.T) {
-	r := validReport()
-	r.Robot = Identity{}
-	r.Power.StateOfCharge = 150
-	r.Mode = ""
+	report := validReport()
+	report.Robot = Identity{}
+	report.Power.StateOfCharge = 150
+	report.Mode = ""
 
-	err := r.Validate()
+	err := report.Validate()
 	for _, want := range []string{"robot identity", "state of charge", "unknown mode"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("want %q in %v", want, err)

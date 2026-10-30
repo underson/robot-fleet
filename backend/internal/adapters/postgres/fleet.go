@@ -47,11 +47,11 @@ func (s *Store) Robot(ctx context.Context, id telemetry.RobotID) (fleet.RobotVie
 	if err != nil {
 		return fleet.RobotView{}, fmt.Errorf("get robot: %w", err)
 	}
-	v, err := pgx.CollectExactlyOneRow(rows, scanRobotView)
+	view, err := pgx.CollectExactlyOneRow(rows, scanRobotView)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fleet.RobotView{}, fleet.ErrRobotNotFound
 	}
-	return v, err
+	return view, err
 }
 
 func (s *Store) History(ctx context.Context, id telemetry.RobotID, from, to time.Time) ([]fleet.HistoryPoint, error) {
@@ -65,25 +65,25 @@ func (s *Store) History(ctx context.Context, id telemetry.RobotID, from, to time
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (fleet.HistoryPoint, error) {
 		var (
-			p      fleet.HistoryPoint
+			point  fleet.HistoryPoint
 			mode   string
 			faults []byte
 		)
-		err := row.Scan(&p.ReportedAt, &p.Position.MapID, &p.Position.X, &p.Position.Y, &p.Position.Theta,
-			&p.Position.Localized, &p.Power.StateOfCharge, &p.Power.Charging, &mode, &faults)
+		err := row.Scan(&point.ReportedAt, &point.Position.MapID, &point.Position.X, &point.Position.Y, &point.Position.Theta,
+			&point.Position.Localized, &point.Power.StateOfCharge, &point.Power.Charging, &mode, &faults)
 		if err != nil {
-			return p, err
+			return point, err
 		}
-		p.Mode = telemetry.Mode(mode)
-		p.Faults, err = decodeFaults(faults)
-		return p, err
+		point.Mode = telemetry.Mode(mode)
+		point.Faults, err = decodeFaults(faults)
+		return point, err
 	})
 }
 
 func scanRobotView(row pgx.CollectableRow) (fleet.RobotView, error) {
 	var (
-		v  fleet.RobotView
-		st struct {
+		view   fleet.RobotView
+		stored struct {
 			reportedAt, receivedAt *time.Time
 			mapID, mode, eStop     *string
 			x, y, theta, charge    *float64
@@ -92,26 +92,26 @@ func scanRobotView(row pgx.CollectableRow) (fleet.RobotView, error) {
 			faults                 []byte
 		}
 	)
-	err := row.Scan(&v.Robot.ID, &v.Robot.Name, &v.Robot.Manufacturer, &v.Robot.SerialNumber, &v.Robot.Model,
-		&v.Robot.Site.ID, &v.Robot.Site.Name,
-		&st.reportedAt, &st.receivedAt, &st.mapID, &st.x, &st.y, &st.theta, &st.localized,
-		&st.charge, &st.charging, &st.mode, &st.faults, &st.eStop, &st.fieldViolation)
-	if err != nil || st.reportedAt == nil {
-		return v, err // no state row: the robot never reported
+	err := row.Scan(&view.Robot.ID, &view.Robot.Name, &view.Robot.Manufacturer, &view.Robot.SerialNumber, &view.Robot.Model,
+		&view.Robot.Site.ID, &view.Robot.Site.Name,
+		&stored.reportedAt, &stored.receivedAt, &stored.mapID, &stored.x, &stored.y, &stored.theta, &stored.localized,
+		&stored.charge, &stored.charging, &stored.mode, &stored.faults, &stored.eStop, &stored.fieldViolation)
+	if err != nil || stored.reportedAt == nil {
+		return view, err // no state row: the robot never reported
 	}
 
-	faults, err := decodeFaults(st.faults)
+	faults, err := decodeFaults(stored.faults)
 	if err != nil {
-		return v, err
+		return view, err
 	}
-	v.State = &fleet.State{
-		ReportedAt: *st.reportedAt,
-		ReceivedAt: *st.receivedAt,
-		Position:   telemetry.Position{MapID: *st.mapID, X: *st.x, Y: *st.y, Theta: *st.theta, Localized: *st.localized},
-		Power:      telemetry.Power{StateOfCharge: *st.charge, Charging: *st.charging},
-		Mode:       telemetry.Mode(*st.mode),
+	view.State = &fleet.State{
+		ReportedAt: *stored.reportedAt,
+		ReceivedAt: *stored.receivedAt,
+		Position:   telemetry.Position{MapID: *stored.mapID, X: *stored.x, Y: *stored.y, Theta: *stored.theta, Localized: *stored.localized},
+		Power:      telemetry.Power{StateOfCharge: *stored.charge, Charging: *stored.charging},
+		Mode:       telemetry.Mode(*stored.mode),
 		Faults:     faults,
-		Safety:     telemetry.Safety{EmergencyStop: telemetry.EmergencyStop(*st.eStop), FieldViolation: *st.fieldViolation},
+		Safety:     telemetry.Safety{EmergencyStop: telemetry.EmergencyStop(*stored.eStop), FieldViolation: *stored.fieldViolation},
 	}
-	return v, nil
+	return view, nil
 }

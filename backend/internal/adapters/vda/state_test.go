@@ -23,47 +23,47 @@ const sample = `{
 }`
 
 func TestDecodeTranslatesToDomain(t *testing.T) {
-	r, err := Decode([]byte(sample))
+	report, err := Decode([]byte(sample))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if r.Robot != (telemetry.Identity{Manufacturer: "acme", SerialNumber: "CLN-0042"}) {
-		t.Errorf("robot = %+v", r.Robot)
+	if report.Robot != (telemetry.Identity{Manufacturer: "acme", SerialNumber: "CLN-0042"}) {
+		t.Errorf("robot = %+v", report.Robot)
 	}
-	if want := time.Date(2026, 10, 30, 9, 15, 2, 120_000_000, time.UTC); !r.ReportedAt.Equal(want) {
-		t.Errorf("reportedAt = %s, want %s", r.ReportedAt, want)
+	if want := time.Date(2026, 10, 30, 9, 15, 2, 120_000_000, time.UTC); !report.ReportedAt.Equal(want) {
+		t.Errorf("reportedAt = %s, want %s", report.ReportedAt, want)
 	}
-	if r.Position != (telemetry.Position{MapID: "hq-floor-2", X: 12.4, Y: 3.1, Theta: 1.57, Localized: true}) {
-		t.Errorf("position = %+v", r.Position)
+	if report.Position != (telemetry.Position{MapID: "hq-floor-2", X: 12.4, Y: 3.1, Theta: 1.57, Localized: true}) {
+		t.Errorf("position = %+v", report.Position)
 	}
-	if r.Power != (telemetry.Power{StateOfCharge: 18.5}) {
-		t.Errorf("power = %+v", r.Power)
+	if report.Power != (telemetry.Power{StateOfCharge: 18.5}) {
+		t.Errorf("power = %+v", report.Power)
 	}
-	if r.Mode != telemetry.ModeSemiAutomatic {
-		t.Errorf("mode = %q", r.Mode)
+	if report.Mode != telemetry.ModeSemiAutomatic {
+		t.Errorf("mode = %q", report.Mode)
 	}
-	if len(r.Faults) != 1 || r.Faults[0] != (telemetry.Fault{Type: "bumperPressed", Level: telemetry.FaultWarning, Description: "Front bumper contact"}) {
-		t.Errorf("faults = %+v", r.Faults)
+	if len(report.Faults) != 1 || report.Faults[0] != (telemetry.Fault{Type: "bumperPressed", Level: telemetry.FaultWarning, Description: "Front bumper contact"}) {
+		t.Errorf("faults = %+v", report.Faults)
 	}
-	if r.Safety != (telemetry.Safety{EmergencyStop: telemetry.EmergencyStopRemote, FieldViolation: true}) {
-		t.Errorf("safety = %+v", r.Safety)
+	if report.Safety != (telemetry.Safety{EmergencyStop: telemetry.EmergencyStopRemote, FieldViolation: true}) {
+		t.Errorf("safety = %+v", report.Safety)
 	}
-	if string(r.VendorData) != `{ "brushWear": 0.34 }` {
-		t.Errorf("vendorData = %s", r.VendorData)
+	if string(report.VendorData) != `{ "brushWear": 0.34 }` {
+		t.Errorf("vendorData = %s", report.VendorData)
 	}
-	if err := r.Validate(); err != nil {
+	if err := report.Validate(); err != nil {
 		t.Errorf("translated sample should be valid: %v", err)
 	}
 }
 
 func TestDecodeWithoutPositionIsNotLocalized(t *testing.T) {
 	msg := strings.Replace(sample, `"position": { "mapId": "hq-floor-2", "x": 12.4, "y": 3.1, "theta": 1.57, "localized": true },`, "", 1)
-	r, err := Decode([]byte(msg))
+	report, err := Decode([]byte(msg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Position.Localized {
+	if report.Position.Localized {
 		t.Fatal("missing position must not be localized")
 	}
 }
@@ -91,11 +91,11 @@ func TestDecodeRejects(t *testing.T) {
 
 func TestUnknownEnumValuesReachValidate(t *testing.T) {
 	msg := strings.Replace(sample, `"SEMIAUTOMATIC"`, `"DANCING"`, 1)
-	r, err := Decode([]byte(msg))
+	report, err := Decode([]byte(msg))
 	if err != nil {
 		t.Fatalf("translation should pass unknown values through: %v", err)
 	}
-	if err := r.Validate(); err == nil || !strings.Contains(err.Error(), `"DANCING"`) {
+	if err := report.Validate(); err == nil || !strings.Contains(err.Error(), `"DANCING"`) {
 		t.Fatalf("Validate should reject the wire value, got %v", err)
 	}
 }
