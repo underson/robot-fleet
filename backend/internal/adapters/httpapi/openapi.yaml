@@ -1,0 +1,272 @@
+openapi: 3.1.0
+info:
+  title: robot-fleet API
+  version: 1.0.0
+  description: |
+    Telemetry ingestion for robots and fleet views for fleet managers.
+    Health (connectivity, battery, attention reasons) is derived by the server; clients display it.
+
+paths:
+  /v1/telemetry:
+    post:
+      summary: Ingest a batch of robot state messages
+      description: |
+        Each message gets its own result, in request order. A bad message never fails the batch.
+        A 5xx response means storage failed; the whole batch can be retried safely.
+      operationId: ingestTelemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 1000
+              items: { $ref: "#/components/schemas/StateMessage" }
+      responses:
+        "200":
+          description: Per-message results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "500": { $ref: "#/components/responses/Error" }
+
+  /v1/sites:
+    get:
+      summary: List sites
+      operationId: listSites
+      responses:
+        "200":
+          description: All sites, by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Site" }
+
+  /v1/fleet:
+    get:
+      summary: Fleet overview
+      description: |
+        The summary covers the whole site (or fleet) and ignores the status filter.
+        Robots are sorted most urgent first, then by name, and paged.
+      operationId: getFleet
+      parameters:
+        - { name: site, in: query, schema: { type: string }, description: Only robots at this site }
+        - name: status
+          in: query
+          schema: { type: string, enum: [attention, online, offline] }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Summary and one page of robots
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FleetOverview" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/robots/{id}:
+    get:
+      summary: One robot with recent history
+      operationId: getRobot
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Robot, health, current state and the last minutes of history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RobotDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string }
+
+  schemas:
+    StateMessage:
+      description: Inspired by the VDA 5050 state message; not compliant with it.
+      type: object
+      required: [manufacturer, serialNumber, timestamp, powerSupply, operatingMode, errors, safetyState]
+      properties:
+        manufacturer: { type: string }
+        serialNumber: { type: string }
+        timestamp: { type: string, format: date-time, description: Robot clock }
+        position: { $ref: "#/components/schemas/Position" }
+        powerSupply: { $ref: "#/components/schemas/Power" }
+        operatingMode:
+          type: string
+          enum: [STARTUP, AUTOMATIC, SEMIAUTOMATIC, INTERVENED, MANUAL, SERVICE, TEACH_IN]
+        errors:
+          type: array
+          items:
+            type: object
+            required: [errorType, errorLevel]
+            properties:
+              errorType: { type: string }
+              errorLevel: { type: string, enum: [WARNING, URGENT, CRITICAL, FATAL] }
+              errorDescription: { type: string }
+        safetyState:
+          type: object
+          required: [activeEmergencyStop, fieldViolation]
+          properties:
+            activeEmergencyStop: { type: string, enum: [NONE, MANUAL, REMOTE] }
+            fieldViolation: { type: boolean }
+        vendorData: { type: object, description: Manufacturer-specific; stored, not interpreted }
+
+    IngestResponse:
+      type: object
+      required: [accepted, rejected, results]
+      properties:
+        accepted: { type: integer }
+        rejected: { type: integer }
+        results:
+          type: array
+          items:
+            type: object
+            required: [status]
+            properties:
+              status: { type: string, enum: [applied, late, duplicate, rejected] }
+              reason: { type: string, enum: [invalid, unknown_robot, clock_skew] }
+              detail: { type: string }
+
+    Site:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+
+    FleetOverview:
+      type: object
+      required: [summary, robots, total, offset, limit]
+      properties:
+        summary: { $ref: "#/components/schemas/Summary" }
+        robots:
+          type: array
+          items: { $ref: "#/components/schemas/RobotStatus" }
+        total: { type: integer, description: Robots matching the filter }
+        offset: { type: integer }
+        limit: { type: integer }
+
+    Summary:
+      type: object
+      required: [total, online, offline, neverReported, needsAttention, lowBattery]
+      properties:
+        total: { type: integer }
+        online: { type: integer }
+        offline: { type: integer }
+        neverReported: { type: integer }
+        needsAttention: { type: integer }
+        lowBattery: { type: integer, description: Low or critical }
+
+    RobotStatus:
+      type: object
+      required: [id, name, site, manufacturer, serialNumber, model, health, state]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        site: { $ref: "#/components/schemas/Site" }
+        manufacturer: { type: string }
+        serialNumber: { type: string }
+        model: { type: string }
+        health: { $ref: "#/components/schemas/Health" }
+        state:
+          oneOf:
+            - { $ref: "#/components/schemas/State" }
+            - { type: "null" }
+          description: Null if the robot never reported
+
+    Health:
+      type: object
+      required: [connectivity, battery, positionKnown, attention]
+      properties:
+        connectivity: { type: string, enum: [online, offline, never_reported] }
+        battery: { type: string, enum: [ok, low, critical, unknown] }
+        positionKnown: { type: boolean }
+        attention:
+          type: array
+          description: Most urgent first; empty when all is well
+          items: { type: string, enum: [emergency_stop, severe_fault, offline, battery_critical] }
+
+    State:
+      type: object
+      required: [reportedAt, receivedAt, position, power, mode, faults, safety]
+      properties:
+        reportedAt: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+        position: { $ref: "#/components/schemas/Position" }
+        power: { $ref: "#/components/schemas/Power" }
+        mode: { $ref: "#/components/schemas/Mode" }
+        faults:
+          type: array
+          items: { $ref: "#/components/schemas/Fault" }
+        safety:
+          type: object
+          required: [emergencyStop, fieldViolation]
+          properties:
+            emergencyStop: { type: string, enum: [none, manual, remote] }
+            fieldViolation: { type: boolean }
+
+    RobotDetail:
+      allOf:
+        - { $ref: "#/components/schemas/RobotStatus" }
+        - type: object
+          required: [history]
+          properties:
+            history:
+              type: array
+              description: Oldest first
+              items: { $ref: "#/components/schemas/HistoryPoint" }
+
+    HistoryPoint:
+      type: object
+      required: [reportedAt, position, power, mode, faults]
+      properties:
+        reportedAt: { type: string, format: date-time }
+        position: { $ref: "#/components/schemas/Position" }
+        power: { $ref: "#/components/schemas/Power" }
+        mode: { $ref: "#/components/schemas/Mode" }
+        faults:
+          type: array
+          items: { $ref: "#/components/schemas/Fault" }
+
+    Position:
+      type: object
+      description: Building-map coordinates, not GPS
+      required: [mapId, x, y, theta, localized]
+      properties:
+        mapId: { type: string }
+        x: { type: number, description: Metres }
+        y: { type: number, description: Metres }
+        theta: { type: number, description: Radians, -π to π }
+        localized: { type: boolean, description: False means x, y, theta can't be trusted }
+
+    Power:
+      type: object
+      required: [stateOfCharge, charging]
+      properties:
+        stateOfCharge: { type: number, minimum: 0, maximum: 100 }
+        charging: { type: boolean }
+
+    Mode:
+      type: string
+      enum: [startup, automatic, semi_automatic, intervened, manual, service, teach_in]
+
+    Fault:
+      type: object
+      required: [type, level]
+      properties:
+        type: { type: string }
+        level: { type: string, enum: [warning, urgent, critical, fatal] }
+        description: { type: string }

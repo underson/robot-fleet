@@ -1,4 +1,5 @@
-// Command fleetd is the fleet telemetry API server.
+// Command fleetd is the fleet telemetry API server. It only wires things
+// together: configuration, storage, use cases and HTTP.
 package main
 
 import (
@@ -9,10 +10,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/underson/robot-fleet/backend/internal/adapters/httpapi"
+	"github.com/underson/robot-fleet/backend/internal/adapters/postgres"
 	"github.com/underson/robot-fleet/backend/internal/config"
+	"github.com/underson/robot-fleet/backend/internal/domain/fleet"
+	"github.com/underson/robot-fleet/backend/internal/domain/telemetry"
 )
 
 func main() {
@@ -38,20 +44,26 @@ func run(logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	mux := http.NewServeMux()
-	// Liveness: the process is up. Readiness: it can reach its database.
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		if err := pool.Ping(r.Context()); err != nil {
-			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
-			return
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		return err
+	}
+	store := postgres.NewStore(pool)
+	if cfg.SeedDemo {
+		if err := store.SeedDemo(ctx); err != nil {
+			return err
 		}
-		w.WriteHeader(http.StatusOK)
-	})
+		logger.Info("demo data seeded")
+	}
 
-	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux}
+	ingestor := telemetry.NewIngestor(store, store, store, time.Now, cfg.MaxClockSkew)
+	fleetService := fleet.NewService(store, cfg.HealthPolicy(), time.Now, cfg.HistoryWindow)
+	api := httpapi.NewServer(ingestor, fleetService, pool, logger)
+
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           api.Routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.HTTPAddr)
