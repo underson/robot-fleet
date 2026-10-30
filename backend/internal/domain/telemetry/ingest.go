@@ -71,14 +71,14 @@ func (in *Ingestor) Ingest(ctx context.Context, reports []Report) ([]Outcome, er
 	robotIDs := make(map[Identity]RobotID)
 
 	var records []Record
-	var positions []int // index in reports of each record
-	for i, rep := range reports {
+	var reportIndex []int // reportIndex[recIdx] is that record's position in reports
+	for reportIdx, rep := range reports {
 		if err := rep.Validate(); err != nil {
-			outcomes[i] = rejected(ReasonInvalid, err)
+			outcomes[reportIdx] = rejected(ReasonInvalid, err)
 			continue
 		}
 		if rep.ReportedAt.After(receivedAt.Add(in.maxClockSkew)) {
-			outcomes[i] = rejected(ReasonClockSkew, fmt.Errorf("reportedAt %s is ahead of server time %s", rep.ReportedAt.Format(time.RFC3339), receivedAt.Format(time.RFC3339)))
+			outcomes[reportIdx] = rejected(ReasonClockSkew, fmt.Errorf("reportedAt %s is ahead of server time %s", rep.ReportedAt.Format(time.RFC3339), receivedAt.Format(time.RFC3339)))
 			continue
 		}
 		robotID, ok := robotIDs[rep.Robot]
@@ -86,7 +86,7 @@ func (in *Ingestor) Ingest(ctx context.Context, reports []Report) ([]Outcome, er
 			var err error
 			robotID, err = in.registry.Lookup(ctx, rep.Robot)
 			if errors.Is(err, ErrUnknownRobot) {
-				outcomes[i] = rejected(ReasonUnknownRobot, fmt.Errorf("%s %s is not registered", rep.Robot.Manufacturer, rep.Robot.SerialNumber))
+				outcomes[reportIdx] = rejected(ReasonUnknownRobot, fmt.Errorf("%s %s is not registered", rep.Robot.Manufacturer, rep.Robot.SerialNumber))
 				continue
 			}
 			if err != nil {
@@ -95,7 +95,7 @@ func (in *Ingestor) Ingest(ctx context.Context, reports []Report) ([]Outcome, er
 			robotIDs[rep.Robot] = robotID
 		}
 		records = append(records, Record{RobotID: robotID, ReceivedAt: receivedAt, Report: rep})
-		positions = append(positions, i)
+		reportIndex = append(reportIndex, reportIdx)
 	}
 	if len(records) == 0 {
 		return outcomes, nil
@@ -109,31 +109,31 @@ func (in *Ingestor) Ingest(ctx context.Context, reports []Report) ([]Outcome, er
 
 	// Only the newest record per robot can become its state; older ones in
 	// the same batch are late by definition.
-	newest := make(map[RobotID]int) // RobotID -> index in records
-	for j, rec := range records {
-		if k, ok := newest[rec.RobotID]; !ok || rec.Supersedes(records[k]) {
-			newest[rec.RobotID] = j
+	newest := make(map[RobotID]int) // RobotID -> recIdx of its newest record
+	for recIdx, rec := range records {
+		if bestIdx, ok := newest[rec.RobotID]; !ok || rec.Supersedes(records[bestIdx]) {
+			newest[rec.RobotID] = recIdx
 		}
 	}
-	saved := make(map[int]bool, len(newest))
-	for _, j := range newest {
-		ok, err := in.state.SaveIfNewer(ctx, records[j])
+	saved := make(map[int]bool, len(newest)) // recIdx -> state updated
+	for _, recIdx := range newest {
+		ok, err := in.state.SaveIfNewer(ctx, records[recIdx])
 		if err != nil {
 			return nil, fmt.Errorf("save state: %w", err)
 		}
-		saved[j] = ok
+		saved[recIdx] = ok
 	}
 
 	// A record counts as applied whenever it updated the state, even if
 	// history already had it: that is a retry after a failed state write.
-	for j, i := range positions {
+	for recIdx, reportIdx := range reportIndex {
 		switch {
-		case saved[j]:
-			outcomes[i] = Outcome{Status: StatusApplied}
-		case !inserted[j]:
-			outcomes[i] = Outcome{Status: StatusDuplicate}
+		case saved[recIdx]:
+			outcomes[reportIdx] = Outcome{Status: StatusApplied}
+		case !inserted[recIdx]:
+			outcomes[reportIdx] = Outcome{Status: StatusDuplicate}
 		default:
-			outcomes[i] = Outcome{Status: StatusLate}
+			outcomes[reportIdx] = Outcome{Status: StatusLate}
 		}
 	}
 	return outcomes, nil
