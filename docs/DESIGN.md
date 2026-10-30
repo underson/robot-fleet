@@ -66,6 +66,14 @@ operating mode, errors and safety. It does not claim compliance.
   must send state only "at least every 30 seconds", so N is configurable.
 - **Duplicates** (same robot, same `ReportedAt`) are ignored, so robots and gateways can retry safely.
 - **Thresholds** (offline after N s, low/critical battery %) live in `HealthPolicy`, not in queries.
+- **Clock skew:** a report stamped more than N seconds ahead of the server clock is rejected (`clock_skew`,
+  N configurable). A robot with a fast clock would otherwise win every ordering comparison and freeze its state.
+- **Every report gets an outcome:** `applied` (now the current state), `late` (stored in history, a newer state
+  exists), `duplicate` (already stored, nothing changed) or `rejected` with a reason (`invalid`, `unknown_robot`,
+  `clock_skew`). Within a batch, only the newest report per robot can become its state.
+- **Idempotent steps instead of one transaction.** History is written first, then the state with "save if newer".
+  Both are safe to repeat, so a failed batch is simply retried: a report already in history still updates the
+  state on retry. The state never points at a report history doesn't have.
 
 ## 5. Architecture
 Modular monolith, hexagonal: domain in the middle, adapters at the edges.
@@ -190,6 +198,7 @@ Goal: the **same artefacts** run in Olivaw's cloud and on a customer's servers; 
 - Message format: **inspired by VDA 5050**, translated at the edge (§3, §5).
 - Robot identity: **manufacturer + serial number**, mapped to our own `RobotID` by the registry.
 - Unknown robot: **reject**, report per item, log + count (§6).
+- Reports stamped in the future beyond the allowed skew: **reject** as `clock_skew` (§4).
 - Transport: **HTTP batch** for the take-home; MQTT discussed in the README (what robots/gateways often speak,
   and what VDA 5050 uses).
 - Live updates in the UI: **polling**; SSE if time allows.
