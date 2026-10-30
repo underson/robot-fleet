@@ -1,3 +1,4 @@
+# docker compose up --build, then open http://localhost:3000
 services:
   db:
     image: postgres:17-alpine
@@ -14,6 +15,35 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  fleetd:
+    build:
+      context: backend
+      args: { CMD: fleetd }
+    environment:
+      DATABASE_URL: postgres://fleet:fleet@db:5432/fleet?sslmode=disable
+      SEED_DEMO: "true" # demo sites and robots; never set for a customer install
+    ports:
+      - "8080:8080" # API, OpenAPI spec, /debug/vars
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Waits for fleetd and its robots by itself, so no health dependency needed.
+  simulator:
+    build:
+      context: backend
+      args: { CMD: simulator }
+    environment:
+      API_URL: http://fleetd:8080
+    depends_on: [fleetd]
+    restart: unless-stopped
+
+  web:
+    build: web
+    ports:
+      - "3000:80"
+    depends_on: [fleetd]
 
 volumes:
   db-data:
