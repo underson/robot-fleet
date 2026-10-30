@@ -4,7 +4,9 @@ Fleet telemetry: robot simulator → Go backend (ingestion, storage, fleet healt
 Design and decisions live in `docs/DESIGN.md`; it is the source of truth. Update it when a decision changes.
 
 ## Layout
-- `backend/`: Go module. `cmd/fleetd` (API server), `cmd/simulator` (robot simulator), `internal/` per bounded context.
+- `backend/`: Go module. `cmd/fleetd` (API server), `cmd/simulator` (robot simulator).
+  `internal/domain/{telemetry,fleet}` (business, owns its ports), `internal/adapters/{vda,httpapi,postgres}`
+  (technology), `internal/config`. Full layout and reasons: `docs/DESIGN.md` §5.
 - `web/`: React + TypeScript (Vite), TanStack Query; API types generated from the OpenAPI spec.
 - `docker-compose.yml`: Postgres + backend + simulator + web; `docker compose up` runs the whole system.
 

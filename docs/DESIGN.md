@@ -77,6 +77,33 @@ simulator ─HTTP─▶│ wire DTO ─▶ translator (ACL) ─▶ telemetry dom
 web (React) ◀─HTTP── query API ◀── fleet domain (HealthPolicy, overview, detail) ◀── FleetReader ───────────┘
 ```
 
+### Code layout
+```
+backend/
+  cmd/
+    fleetd/            wiring only: config, adapters, start the server
+    simulator/         robot simulator
+  internal/
+    domain/            the business; imports nothing from adapters
+      telemetry/       write side: TelemetryReport, ordering/dedup rules, Ingest use case,
+                       ports (StateStore, HistoryStore, Registry)
+      fleet/           read side: HealthPolicy, attention reasons, overview and detail use cases, FleetReader port
+    adapters/          the technology; implements or drives the domain's ports
+      vda/             wire DTO + translator into telemetry types (the anti-corruption layer)
+      httpapi/         HTTP handlers, request/response mapping, OpenAPI spec
+      postgres/        implements telemetry's and fleet's ports; migrations
+    config/            environment configuration, used by cmd/
+```
+- **`domain/` + `adapters/` is the hexagon in the folder tree.** Domain packages are named after the business,
+  adapters after the technology. Dependencies point inwards: `adapters/postgres` imports `domain/telemetry`, never
+  the reverse.
+- **Each domain package owns its ports** (interfaces defined where they are used, Go-style); adapters implement them.
+- **Use cases live in their domain package.** At this size a separate application layer would only add indirection;
+  it's the first thing to split out if the use cases grow orchestration (transactions across contexts, events).
+- **`vda/` is its own adapter**, so supporting another vendor format means adding a sibling package.
+- Rejected: layer folders per context (`telemetry/domain`, `telemetry/adapters/postgres`), common in Java-style
+  hexagonal projects but deep for Go at this size.
+
 - **Ingestion** (write side): decode, translate, check identity, validate, apply ordering/dedup rules, persist.
 - **Fleet** (read side): build the overview and robot detail, deriving health with `HealthPolicy`.
 - Write and read sides share Postgres but not code paths (light CQRS, not full CQRS: one database, no events, no separate read store).
