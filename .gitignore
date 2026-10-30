@@ -1,0 +1,13 @@
+# Go
+/bin/
+*.test
+coverage.out
+
+# Node
+node_modules/
+dist/
+
+# Env / OS
+.env
+.DS_Store
+
